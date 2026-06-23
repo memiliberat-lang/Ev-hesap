@@ -56,7 +56,8 @@
 
     <div class="section-title">📋 Bu Ayın Harcamaları</div>
     <div class="expense-list" id="liste">
-        </div>
+        <div style="color:#888; text-align:center; padding:10px;">Yükleniyor...</div>
+    </div>
     <button onclick="listeyiTemizle()" style="background:#dc3545; padding:8px; font-size:13px; margin-top:5px;">Tüm Listeyi Sıfırla (Yeni Ay)</button>
 
     <div class="section-title">🗓️ Ay Sonu Gün Girişi & Hesaplaşma</div>
@@ -79,14 +80,42 @@
     <div id="result-box"></div>
 </div>
 
-<script>
-    // Harcamaları telefon hafızasında tutmak için array
-    let harcamalar = JSON.parse(localStorage.getItem('evHarcamalar')) || [];
+<script type="module">
+    // Firebase Kütüphanelerini İçe Aktar
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
-    // Sayfa açıldığında listeyi çiz
-    listeyiGuncelle();
+    // Kendi Firebase Kimlik Kartın
+    const firebaseConfig = {
+      apiKey: "AIzaSyBzHnpPcucG7YBoZgsvBbsDYCQJeLJDbEI",
+      authDomain: "ev-hesap-7e2e9.firebaseapp.com",
+      projectId: "ev-hesap-7e2e9",
+      storageBucket: "ev-hesap-7e2e9.firebasestorage.app",
+      messagingSenderId: "1044799324909",
+      appId: "1:1044799324909:web:1a104fdf40efbc1cd1c2e4",
+      measurementId: "G-DPNX4FSSHE"
+    };
 
-    function harcamaEkle() {
+    // Sistemi Başlat
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let harcamalar = [];
+
+    // Veritabanını Canlı Olarak Dinle (Biri veri ekleyince anında herkesin ekranında güncellenir)
+    onSnapshot(collection(db, "harcamalar"), (snapshot) => {
+        harcamalar = [];
+        snapshot.forEach((belge) => {
+            harcamalar.push({ id: belge.id, ...belge.data() });
+        });
+        
+        // Tarihe göre sırala
+        harcamalar.sort((a, b) => a.tarih - b.tarih);
+        listeyiGuncelle();
+    });
+
+    // Harcama Ekleme (Firebase'e Gönderir)
+    window.harcamaEkle = async function() {
         let kisi = document.getElementById('kisiSec').value;
         let aciklama = document.getElementById('aciklama').value;
         let tur = document.getElementById('turSec').value;
@@ -97,30 +126,45 @@
             return;
         }
 
-        harcamalar.push({ id: Date.now(), kisi, aciklama, tur, tutar });
-        localStorage.setItem('evHarcamalar', JSON.stringify(harcamalar));
+        // Butonu geçici olarak devre dışı bırak
+        document.querySelector('.btn-add').disabled = true;
+        document.querySelector('.btn-add').innerText = "Ekleniyor...";
+
+        await addDoc(collection(db, "harcamalar"), {
+            kisi: kisi,
+            aciklama: aciklama,
+            tur: tur,
+            tutar: tutar,
+            tarih: Date.now()
+        });
         
         document.getElementById('aciklama').value = '';
         document.getElementById('tutar').value = '';
         
-        listeyiGuncelle();
+        // Butonu eski haline getir
+        document.querySelector('.btn-add').disabled = false;
+        document.querySelector('.btn-add').innerText = "Listeye Ekle";
     }
 
-    function sil(id) {
-        harcamalar = harcamalar.filter(h => h.id !== id);
-        localStorage.setItem('evHarcamalar', JSON.stringify(harcamalar));
-        listeyiGuncelle();
+    // Silme İşlemi (Firebase'den Siler)
+    window.sil = async function(id) {
+        if(confirm("Bu harcamayı silmek istediğine emin misin?")) {
+            await deleteDoc(doc(db, "harcamalar", id));
+        }
     }
 
-    function listeyiTemizle() {
-        if(confirm("Tüm harcama listesi silinecek ve yeni aya geçilecek. Emin misin?")) {
-            harcamalar = [];
-            localStorage.setItem('evHarcamalar', JSON.stringify(harcamalar));
-            listeyiGuncelle();
+    // Tüm Listeyi Sıfırlama
+    window.listeyiTemizle = async function() {
+        if(confirm("Tüm harcama listesi veritabanından tamamen silinecek. Emin misin?")) {
+            const querySnapshot = await getDocs(collection(db, "harcamalar"));
+            querySnapshot.forEach((belge) => {
+                deleteDoc(doc(db, "harcamalar", belge.id));
+            });
             document.getElementById('result-box').style.display = 'none';
         }
     }
 
+    // Arayüzü Güncelleme (Hiçbir tasarımı değiştirmedim)
     function listeyiGuncelle() {
         let listeDiv = document.getElementById('liste');
         listeDiv.innerHTML = '';
@@ -135,13 +179,14 @@
             listeDiv.innerHTML += `
                 <div class="expense-item">
                     <div><b>${h.kisi}</b>: ${h.aciklama} ${turEtiket}</div>
-                    <div><b>${h.tutar} TL</b> <span class="delete-btn" onclick="sil(${h.id})">X</span></div>
+                    <div><b>${h.tutar} TL</b> <span class="delete-btn" onclick="sil('${h.id}')">X</span></div>
                 </div>
             `;
         });
     }
 
-    function hesapla() {
+    // Hesaplama İşlemi (Mantığı tamamen aynı)
+    window.hesapla = function() {
         let gB = parseFloat(document.getElementById('gunBerat').value) || 0;
         let gM = parseFloat(document.getElementById('gunMehmet').value) || 0;
         let gN = parseFloat(document.getElementById('gunNurullah').value) || 0;
@@ -150,11 +195,12 @@
         let toplamSabit = 0;
         let toplamDegisken = 0;
         
-        // Kişilerin kendi cebinden ödedikleri
         let odenen = { "Berat": 0, "Mehmet": 0, "Nurullah": 0 };
 
         harcamalar.forEach(h => {
-            odenen[h.kisi] += h.tutar;
+            if (odenen[h.kisi] !== undefined) {
+                odenen[h.kisi] += h.tutar;
+            }
             if (h.tur === 'Sabit') toplamSabit += h.tutar;
             else toplamDegisken += h.tutar;
         });
